@@ -18,6 +18,24 @@ module math
         end function Dot
 
 
+        function randUnitVector(iseed)
+
+            implicit none
+
+            real :: ran2, x, y, z, a, r, randUnitVector(3)
+            integer :: iseed
+
+            z = ran2(iseed) * 2. - 1.
+            a = ran2(iseed) * 2. * PI
+            r = sqrt(1. - z**2)
+            x = r * cos(a)
+            y = r * sin(a)
+            randUnitVector = [x, y, z]
+
+
+        end function randUnitVector
+
+
         function randInUnitDisk(iseed)
 
             implicit none
@@ -35,10 +53,11 @@ module math
         end function randInUnitDisk
 
 
-        function RandInUnitSphere()
+        function RandInUnitSphere(iseed)
         
             implicit none
 
+            integer :: iseed
             real :: p(3), ran2, RandInUnitSphere(3)
 
             do

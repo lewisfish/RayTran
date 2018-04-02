@@ -47,9 +47,10 @@ module types
 
             implicit none
 
-            real, intent(IN)  ::  n(3), ninte
-            real, intent(OUT) :: outrefracted(3)
-            real ::v(3)
+            real, intent(IN)    ::  n(3), ninte
+            real, intent(OUT)   :: outrefracted(3)
+            real, intent(INOUT) :: v(3)
+            
             real :: dt, discr
 
             v = normalise(v)
@@ -89,11 +90,13 @@ module types
             implicit none
 
             real, intent(IN) :: v(3), n(3)
+
             real :: reflect(3)
 
             reflect = v - 2.*dot(v,n)*n
 
         end function reflect
+
 
         function getRay_fn(this, s, t)
 
@@ -102,9 +105,10 @@ module types
             implicit none
 
             real, intent(IN) :: s, t
+
             class(camera) :: this
-            type(ray) :: getRay_fn
-            real :: rd(3), offset(3)
+            type(ray)     :: getRay_fn
+            real          :: rd(3), offset(3)
 
             rd = this%lensRadius * randInUnitDisk(iseed)
             offset = this%u * rd(1) + this%v * rd(2)
@@ -122,7 +126,7 @@ module types
 
             implicit none
 
-            real, intent(IN) :: lookFrom(3), lookAt(3), vup(3), vfov, aspect,aperture, focusDist
+            real, intent(IN) :: lookFrom(3), lookAt(3), vup(3), vfov, aspect, aperture, focusDist
             type(camera) :: this
             real :: theta, halfWidth, halfHeight
 
@@ -145,8 +149,8 @@ module types
 
             implicit none
 
-            type(ray) :: this
-            real :: orig(3), dir(3)
+            type(ray)        :: this
+            real, intent(IN) :: orig(3), dir(3)
 
             this%orig = orig
             this%dir = dir
@@ -157,7 +161,7 @@ module types
 
             implicit none
 
-            class(ray) :: this
+            class(ray)       :: this
             real, intent(IN) :: t
             real :: res(3)
 

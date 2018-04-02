@@ -42,7 +42,7 @@ module utils
             spheresMats(4) = material("metal",   [0.4,0.4,0.8], [0.,0.,0.], 0., 0.)
             spheresMats(5) = material("metal",   [0.4,0.8,0.4], [0.,0.,0.], 0., 0.)
             spheresMats(6) = material("metal",   [0.4,0.8,0.4], [0.,0.,0.], 0.2, 0.)
-            spheresMats(7) = material("lambert",   [0.4,0.8,0.4], [0.,0.,0.], 0.6, 0.)
+            spheresMats(7) = material("metal",   [0.4,0.8,0.4], [0.,0.,0.], 0.6, 0.)
             spheresMats(8) = material("dieletric",[0.4,0.4,0.4], [0.,0.,0.], 0., 1.5)
             spheresMats(9) = material("lambert", [0.4,0.4,0.4], [30.,30.,30.], 0., 0.)
 
@@ -97,7 +97,9 @@ module utils
             type(ray) :: r
             integer :: x, y, i
             real    :: lerpFac, colour(3), u, v, invWidth, invHeight, ran2
+            logical :: bool
 
+            bool = .true.
             lerpFac = 1.0
 
             invHeight = 1. / real(ysize)
@@ -111,12 +113,11 @@ module utils
                         u = (real(x) + ran2(iseed)) * invWidth
                         v = (real(y) + ran2(iseed)) * invHeight
                         r = cam%GetRay(u, v) 
-
-                        colour = colour + Trace(r, 0)
+                        bool = .true.
+                        colour = colour + Trace(r, 0, bool)
                     end do
 
                     colour = colour * 1./real(SamplesPerPixel)
-                    colour = sqrt(colour)
 
                     red(x, y) = red(x,y) + colour(1)
                     green(x, y) = green(x,y) + colour(2)
@@ -128,7 +129,7 @@ module utils
         end subroutine TraceRowJob
 
 
-        recursive function Trace(r, depth) result(res)
+        recursive function Trace(r, depth, doMatE) result(res)
 
             use types, only : hit, ray
 
@@ -136,18 +137,28 @@ module utils
 
             type(ray) :: r, scattered
             type(hit) :: rec
+            logical, intent(INOUT) :: doMatE
 
             type(material) :: mat
-            real :: res(3), attenuation(3), lightE(3), t, unitDir(3)
+            real :: res(3), attenuation(3), lightE(3), t, unitDir(3), matE(3)
             integer :: identity, depth
+
+            doMatE = .true.
 
             if(hitWorld(r, minT, maxT, rec, identity))then
                 mat = spheresMats(identity)
+                matE = mat%emissive
                 if(depth < maxDepth .and. scatter(mat, r, rec, attenuation, scattered, lightE, identity))then
-                    res = mat%emissive + lightE + attenuation * Trace(scattered, depth+1)
+                    if(.not. doMatE)matE = [0.,0.,0.]
+                    if(mat%type /= "lambert")then
+                        domatE = .false.
+                    else
+                        domatE = .true.
+                    end if
+                    res =  matE + lightE + attenuation * Trace(scattered, depth+1, domatE)
                     return
                 else
-                    res = mat%emissive
+                    res = matE
                     return
                 end if
             else
@@ -163,7 +174,7 @@ module utils
         logical function scatter(mat, r_in, rec, attenuation, scattered, outLightE, idMat)
 
             use types, only : hit, material, ray, reflect, schlick, refract
-            use math,  only : dot, normalise, RandInUnitSphere, iseed, pi, cross
+            use math,  only : dot, normalise, RandInUnitSphere, iseed, pi, cross, randUnitVector
 
             implicit none
 
@@ -180,7 +191,7 @@ module utils
             scatter = .false.
             outLightE = [0.,0.,0.]
             if(trim(mat%type) == "lambert")then
-                targetpt = rec%pos + rec%normal + randInUnitSphere()
+                targetpt = rec%pos + rec%normal + randUnitVector(iseed)
                 scattered = Ray(rec%pos, normalise(targetpt - rec%pos))
                 attenuation = mat%albedo
 
@@ -232,7 +243,7 @@ module utils
                 rec%normal = normalise(rec%normal)
                 
                 refl = reflect(r_in%dir, rec%normal)
-                scattered = Ray(rec%pos, normalise(refl + mat%roughness*randInUnitSphere()))
+                scattered = Ray(rec%pos, normalise(refl + mat%roughness*randInUnitSphere(iseed)))
                 attenuation = mat%albedo
                 scatter = dot(scattered%dir, rec%normal) > 0
                 return
@@ -300,6 +311,21 @@ module utils
             end do
         end function hitWorld
 
+
+            integer function LinearToSRGB(x)
+
+
+            implicit none
+
+            real, intent(INOUT) :: x
+
+
+                x = max(0., x)
+                x = max(1.055 * x**(.416666667) - 0.055, 0.)
+                LinearToSRGB = min(255, int(x*255))
+
+        end function LinearToSRGB
+
 end module utils
 
 program ptrace  
@@ -312,12 +338,12 @@ program ptrace
 
     implicit none
     
-    integer :: startRow, endRow,i,j, maxc
+    integer :: startRow, endRow, i, j
     type(camera) :: cam
     type(RGBimage) :: img
     type(rgb) :: colour
     real, allocatable :: a1(:,:), a2(:,:), a3(:,:)
-    real :: lookAt(3), lookFrom(3), distToFocus, aperture,a,b,c
+    real :: lookAt(3), lookFrom(3), distToFocus, aperture, finish, start
 
     comm = MPI_COMM_WORLD
 
@@ -327,22 +353,32 @@ program ptrace
 
 
     iseed = -4564231 + id
-    SamplesPerPixel = 16
+    SamplesPerPixel = 4
     xsize = 1280
     ysize = 720
 
     lookFrom = [0.,2.,3.]
     lookAt = [0.,0.,0.]
-    aperture = .1
+    aperture = .0
     distToFocus = 3.
 
     cam = camera(lookFrom, lookAt, [0.,1.,0.], 60., real(xsize)/real(ysize), aperture, distToFocus)
     call set_scene()
     allocate(red(xsize, ysize), green(xsize, ysize), blue(xsize, ysize))
 
+    !split image into rows for each core
     call split_job(startRow, endRow)
-    
+
+    call mpi_barrier(comm)
+    if(id == 0)call cpu_time(start)
+
+    !do ray tracing
     call TraceRowJob(startRow, endRow, cam)
+
+    call mpi_barrier(comm)
+    call cpu_time(finish)
+
+    if(id == 0)print*,finish - start
 
     allocate(a1(xsize, ysize), a2(xsize, ysize), a3(xsize, ysize))
 
@@ -360,11 +396,11 @@ program ptrace
     if(id == 0)then
         do j = 1, ysize
             do i = 1, xsize
-                colour = rgb(int(a1(i,j)*255.99), int(a2(i,j)*255.99), int(a3(i,j)*255.99))
+                colour = rgb(LinearToSRGB(a1(i,j)), LinearToSRGB(a2(i,j)), LinearToSRGB(a3(i,j)))
                 call set_pixel(img, i, j, colour)
             end do
         end do
-        call save_image(img,"test", ".png")
+        call save_image(img,"../data/test", ".png")
     end if
 
 
