@@ -3,7 +3,7 @@ Ray Tracer in pure Fortran
 
 Ray tracing code based upon Peter Shirleys book series: [Raytracing in ...](http://in1weekend.blogspot.co.uk/)
 
-Currently renders spheres only. Has some bug where the light (dark white sphere in picture below) is not correct.
+Currently renders spheres only.
 
 ## Features
   - Soft Shadows
@@ -20,7 +20,8 @@ To install:
 
 ### To Do
   
-  - Fix emissive object bug/reflection bug
-  - Add more primatives (planes etc.)
+  - speed up
+  - eliminate "fireflies"
+  - Add more primatives (triangles etc.)
   - Ability to read scene files (.obj etc)
   - More...
