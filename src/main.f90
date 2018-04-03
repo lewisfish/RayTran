@@ -85,7 +85,7 @@ module utils
         end subroutine split_job
 
 
-        subroutine TraceRowJob(startRow, endRow, cam)
+        subroutine TraceRowJob(startRow, endRow, cam, frameCount)
 
             use math, only : iseed
             use types, only : camera, ray
@@ -95,17 +95,18 @@ module utils
             integer, intent(IN) :: startRow, endRow
             type(camera) :: cam
             type(ray) :: r
-            integer :: x, y, i
-            real    :: lerpFac, colour(3), u, v, invWidth, invHeight, ran2
+            integer :: x, y, i, frameCount
+            real    :: lerpFac, colour(3), u, v, invWidth, invHeight, ran2, p
             logical :: bool
 
             bool = .true.
-            lerpFac = 1.0
-
+            lerpFac = real(frameCount) / real(frameCount+1.)
             invHeight = 1. / real(ysize)
             invWidth = 1. / real(xsize)
 
             do y = startRow, endRow
+                iseed = ior(y * 9781 + frameCount*6271, 1)
+                p =ran2(-abs(iseed))
                 do x = 1, xsize
 
                     colour = [0., 0., 0.]
@@ -118,10 +119,10 @@ module utils
                     end do
 
                     colour = colour * 1./real(SamplesPerPixel)
-
-                    red(x, y) = red(x,y) + colour(1)
-                    green(x, y) = green(x,y) + colour(2)
-                    blue(x, y) = blue(x,y) + colour(3)
+                    colour = [red(x, y), green(x, y), blue(x,y)] * lerpFac + colour * (1.-lerpFac);
+                    red(x, y) =  colour(1)
+                    green(x, y) = colour(2)
+                    blue(x, y) = colour(3)
 
                 end do
             end do
@@ -338,7 +339,7 @@ program ptrace
 
     implicit none
     
-    integer :: startRow, endRow, i, j
+    integer :: startRow, endRow, i, j, frameCount
     type(camera) :: cam
     type(RGBimage) :: img
     type(rgb) :: colour
@@ -353,7 +354,7 @@ program ptrace
 
 
     iseed = -4564231 + id
-    SamplesPerPixel = 4
+    SamplesPerPixel = 16
     xsize = 1280
     ysize = 720
 
@@ -373,7 +374,10 @@ program ptrace
     if(id == 0)call cpu_time(start)
 
     !do ray tracing
-    call TraceRowJob(startRow, endRow, cam)
+    do frameCount = 0, 100
+        print*,frameCount,id
+        call TraceRowJob(startRow, endRow, cam, frameCount)
+    end do
 
     call mpi_barrier(comm)
     call cpu_time(finish)
@@ -400,7 +404,7 @@ program ptrace
                 call set_pixel(img, i, j, colour)
             end do
         end do
-        call save_image(img,"../data/test", ".png")
+        call save_image(img,"../data/test100", ".png")
     end if
 
 
