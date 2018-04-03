@@ -41,8 +41,8 @@ module utils
             spheresMats(3) = material("lambert", [0.4,0.8,0.4], [0.,0.,0.], 0., 0.)
             spheresMats(4) = material("metal",   [0.4,0.4,0.8], [0.,0.,0.], 0., 0.)
             spheresMats(5) = material("metal",   [0.4,0.8,0.4], [0.,0.,0.], 0., 0.)
-            spheresMats(6) = material("metal",   [0.4,0.8,0.4], [0.,0.,0.], 0.2, 0.)
-            spheresMats(7) = material("metal",   [0.4,0.8,0.4], [0.,0.,0.], 0.6, 0.)
+            spheresMats(6) = material("metal",   [0.4,0.8,0.4], [0.,0.,0.], 0.0, 0.)
+            spheresMats(7) = material("metal",   [0.4,0.8,0.4], [0.,0.,0.], 0.0, 0.)
             spheresMats(8) = material("dieletric",[0.4,0.4,0.4], [0.,0.,0.], 0., 1.5)
             spheresMats(9) = material("lambert", [0.4,0.4,0.4], [30.,30.,30.], 0., 0.)
 
@@ -85,8 +85,9 @@ module utils
         end subroutine split_job
 
 
-        subroutine TraceRowJob(startRow, endRow, cam, frameCount)
+        subroutine TraceRowJob(startRow, endRow, cam, frameCount, outrayCount)
 
+            use iso_fortran_env, only : int64
             use math, only : iseed
             use types, only : camera, ray
 
@@ -96,6 +97,8 @@ module utils
             type(camera) :: cam
             type(ray) :: r
             integer :: x, y, i, frameCount
+            integer(int64) :: outrayCount, rayCount
+
             real    :: lerpFac, colour(3), u, v, invWidth, invHeight, ran2, p
             logical :: bool
 
@@ -104,7 +107,10 @@ module utils
             invHeight = 1. / real(ysize)
             invWidth = 1. / real(xsize)
 
+            rayCount = 0_int64
+
             do y = startRow, endRow
+                print*,100.*(real(y-startRow)/real(endrow-startRow)),id
                 iseed = ior(y * 9781 + frameCount*6271, 1)
                 p =ran2(-abs(iseed))
                 do x = 1, xsize
@@ -115,7 +121,7 @@ module utils
                         v = (real(y) + ran2(iseed)) * invHeight
                         r = cam%GetRay(u, v) 
                         bool = .true.
-                        colour = colour + Trace(r, 0, bool)
+                        colour = colour + Trace(r, 0, bool, rayCount)
                     end do
 
                     colour = colour * 1./real(SamplesPerPixel)
@@ -126,37 +132,45 @@ module utils
 
                 end do
             end do
+            call mpi_allreduce(mpi_in_place, rayCount, 1, mpi_integer8, mpi_sum, comm)
+            if(id == 0)then
+                outrayCount = outrayCount + rayCount
+            end if
 
         end subroutine TraceRowJob
 
 
-        recursive function Trace(r, depth, doMatE) result(res)
+        recursive function Trace(r, depth, doMatE, inoutRayCount) result(res)
 
-            use types, only : hit, ray
+            use iso_fortran_env, only : int64
+            use types,           only : hit, ray
 
             implicit none
 
             type(ray) :: r, scattered
             type(hit) :: rec
             logical, intent(INOUT) :: doMatE
+            integer(int64) :: inoutRayCount
 
             type(material) :: mat
             real :: res(3), attenuation(3), lightE(3), t, unitDir(3), matE(3)
             integer :: identity, depth
 
             doMatE = .true.
+            inoutRayCount = inoutRayCount + 1
+
 
             if(hitWorld(r, minT, maxT, rec, identity))then
                 mat = spheresMats(identity)
                 matE = mat%emissive
-                if(depth < maxDepth .and. scatter(mat, r, rec, attenuation, scattered, lightE, identity))then
+                if(depth < maxDepth .and. scatter(mat, r, rec, attenuation, scattered, lightE, identity, inoutRayCount))then
                     if(.not. doMatE)matE = [0.,0.,0.]
                     if(mat%type /= "lambert")then
                         domatE = .false.
                     else
                         domatE = .true.
                     end if
-                    res =  matE + lightE + attenuation * Trace(scattered, depth+1, domatE)
+                    res =  matE + lightE + attenuation * Trace(scattered, depth+1, domatE, inoutRayCount)
                     return
                 else
                     res = matE
@@ -172,8 +186,9 @@ module utils
         end function Trace
 
 
-        logical function scatter(mat, r_in, rec, attenuation, scattered, outLightE, idMat)
-
+        logical function scatter(mat, r_in, rec, attenuation, scattered, outLightE, idMat, inoutRayCount)
+            
+            use iso_fortran_env, only : int64
             use types, only : hit, material, ray, reflect, schlick, refract
             use math,  only : dot, normalise, RandInUnitSphere, iseed, pi, cross, randUnitVector
 
@@ -183,6 +198,8 @@ module utils
             type(ray) :: r_in, scattered
             type(hit) :: rec, lighthit
             type(sphere) :: s
+            integer(int64) :: inoutRayCount
+
             real :: attenuation(3), outLightE(3), refl(3), targetpt(3)
             real :: cosine, reflprob, refr(3), ninte, ran2, rdir(3), outwardN(3)
             integer :: i, idMat, hitId
@@ -222,6 +239,7 @@ module utils
                     l = normalise(l)
 
                     !shadow ray
+                    inoutRayCount = inoutRayCount + 1
                     if(hitWorld(ray(rec%pos, l), minT, maxT, lighthit, hitID))then
                         if(hitID == i)then
                             omega = 2. * PI * (1. - cosAMax)
@@ -313,7 +331,7 @@ module utils
         end function hitWorld
 
 
-            integer function LinearToSRGB(x)
+        integer function LinearToSRGB(x)
 
 
             implicit none
@@ -331,6 +349,7 @@ end module utils
 
 program ptrace  
 
+    use iso_fortran_env, only : int64
     use mpi_f08
     use utils
     use types
@@ -339,6 +358,7 @@ program ptrace
 
     implicit none
     
+    integer(int64) :: rayCount
     integer :: startRow, endRow, i, j, frameCount
     type(camera) :: cam
     type(RGBimage) :: img
@@ -352,9 +372,9 @@ program ptrace
     call mpi_comm_size(comm, numproc)
     call mpi_comm_rank(comm, id)
 
-
+    rayCount = 0
     iseed = -4564231 + id
-    SamplesPerPixel = 16
+    SamplesPerPixel = 1024
     xsize = 1280
     ysize = 720
 
@@ -374,15 +394,17 @@ program ptrace
     if(id == 0)call cpu_time(start)
 
     !do ray tracing
-    do frameCount = 0, 100
+    do frameCount = 0, 0
+        call TraceRowJob(startRow, endRow, cam, frameCount, rayCount)
         print*,frameCount,id
-        call TraceRowJob(startRow, endRow, cam, frameCount)
     end do
 
     call mpi_barrier(comm)
     call cpu_time(finish)
 
-    if(id == 0)print*,finish - start
+    if(id == 0)print*,"Time taken:",finish - start,"s"
+    if(id == 0)print"(1X,A,1x,F6.2)","MRays/s",(real(rayCount)/(finish-start))/1.d6
+
 
     allocate(a1(xsize, ysize), a2(xsize, ysize), a3(xsize, ysize))
 
@@ -404,7 +426,7 @@ program ptrace
                 call set_pixel(img, i, j, colour)
             end do
         end do
-        call save_image(img,"../data/test100", ".png")
+        call save_image(img,"../data/test-pp-1024", ".png")
     end if
 
 
