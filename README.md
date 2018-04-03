@@ -16,7 +16,8 @@ To install:
   use install.sh file
   ./install.sh
   
-  ![Sample image](https://raw.githubusercontent.com/lewisfish/RayTran/master/data/test.png)
+  Sample output for 1024 rays per pixel
+  ![Sample image](https://raw.githubusercontent.com/lewisfish/RayTran/master/data/test-pp-1024.png)
 
 ### To Do
   
