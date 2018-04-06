@@ -5,7 +5,7 @@ module utils
 
     implicit none
 
-    integer            :: numproc, id, xsize, ysize, SamplesPerPixel, sphereCount
+    integer            :: numproc, id, xsize, ysize, SamplesPerPixel, sphereCount, master=0
     type(mpi_comm)     :: comm
     type(mpi_status)   :: status
     real, allocatable  :: red(:,:), green(:,:), blue(:,:)
@@ -48,6 +48,29 @@ module utils
 
 
         end subroutine set_scene
+
+
+        subroutine get_task(startRow, endRow)
+
+            implicit none
+
+            integer, intent(OUT) :: startRow, endRow
+            integer :: i, array(2)
+
+            array = 0
+
+            if(id == master)then
+                do i = 1, ysize/20
+                    startRowSend = 
+                    endRowSend = 
+                    call mpi_send()
+                end do
+            else
+                call mpi_recv()
+            end if
+
+
+        end subroutine get_task
 
 
         subroutine split_job(startRow, endRow)
